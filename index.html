@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FF7A45">
+<title>今日の献立シミュレーション</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+:root{
+  --main:#FF7A45; --main-d:#E8632F; --main-l:#FFEEE5;
+  --text:#1F2937; --sub:#6B7280; --bg:#F5F7FA; --line:#E5E7EB; --danger:#EF4444;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#fff;color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;
+  -webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;cursor:pointer}
+#app{max-width:560px;margin:0 auto;min-height:100vh;min-height:100dvh;position:relative;overflow-x:hidden}
+.screen{animation:inFwd .26s ease both;padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+.screen.back{animation-name:inBack}
+@keyframes inFwd{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+@keyframes inBack{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}
+
+/* ---------- 上部バー ---------- */
+.topbar{position:sticky;top:0;z-index:5;background:#fff;
+  padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:1px solid var(--line)}
+.topbar .row{display:flex;justify-content:space-between;align-items:center}
+.q-no{color:var(--main);font-weight:700;font-size:12px;letter-spacing:.06em}
+.linkbtn{background:none;border:0;color:var(--sub);font-size:12px;padding:6px 0 6px 12px}
+.progress{height:6px;background:var(--line);border-radius:3px;margin-top:8px;overflow:hidden}
+.progress>i{display:block;height:100%;background:var(--main);border-radius:3px;transition:width .35s ease}
+
+h1.q{font-size:20px;line-height:1.5;margin:22px 16px 6px;font-weight:700}
+.subtext{margin:0 16px 16px;font-size:12px;color:var(--sub);line-height:1.6}
+.meta{display:flex;align-items:center;justify-content:space-between;margin:0 16px 16px}
+.badge{background:var(--main-l);color:var(--main);font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px}
+.count{font-size:12px;color:var(--sub)}
+.count b{color:var(--main)}
+
+/* ---------- 選択肢（質問） ---------- */
+.opts{padding:0 16px}
+.opt{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--bg);border:1.5px solid var(--line);border-radius:14px;
+  padding:16px 14px;margin:0 0 10px;font-size:15px;line-height:1.5;
+  transition:transform .08s ease,background .15s,border-color .15s;user-select:none;-webkit-user-select:none}
+.opt:active{transform:scale(.985)}
+.opt.on{background:var(--main-l);border-color:var(--main);font-weight:700}
+.box{flex:0 0 24px;width:24px;height:24px;border:2px solid #C4C9D0;background:#fff;
+  display:grid;place-items:center;transition:background .15s,border-color .15s}
+.box.round{border-radius:50%}
+.box.square{border-radius:7px}
+.opt.on .box{background:var(--main);border-color:var(--main)}
+.box svg{width:14px;height:14px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;
+  transform:scale(0);transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+.opt.on .box svg{transform:scale(1)}
+.opt .txt{flex:1;min-width:0;word-break:break-word}
+
+/* ---------- 食材チップ入力 ---------- */
+.add-row{display:flex;gap:8px;padding:0 16px 16px}
+.add-row input{flex:1;border:1.5px solid var(--line);border-radius:12px;padding:13px 14px;
+  font:inherit;font-size:16px;color:var(--text);outline:none}
+.add-row input:focus{border-color:var(--main)}
+.add-row button{flex:0 0 56px;border:0;border-radius:12px;background:var(--main);color:#fff;
+  font-size:22px;font-weight:700;transition:transform .08s ease,background .15s}
+.add-row button:active{transform:scale(.94);background:var(--main-d)}
+.chips{padding:0 16px;display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:flex;align-items:center;gap:6px;background:var(--main-l);color:var(--main-d);
+  border:1px solid var(--main);border-radius:999px;padding:8px 8px 8px 14px;font-size:14px;font-weight:700;
+  animation:chipIn .18s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes chipIn{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
+.chip button{background:rgba(255,122,69,.18);border:0;width:20px;height:20px;border-radius:50%;
+  font-size:14px;line-height:1;color:var(--main-d);display:grid;place-items:center}
+.chip.priority{background:var(--main);color:#fff;border-color:var(--main-d)}
+.chip.priority button{background:rgba(255,255,255,.3);color:#fff}
+.chip.selectable{cursor:pointer;background:var(--bg);color:var(--text);border-color:var(--line)}
+.chip.selectable.on{background:var(--main);color:#fff;border-color:var(--main-d);font-weight:700}
+.empty-hint{margin:8px 16px 0;font-size:12px;color:var(--sub)}
+
+/* ---------- 下部固定バー ---------- */
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:6;
+  background:linear-gradient(to top,#fff 78%,rgba(255,255,255,0));
+  padding:18px 16px calc(12px + env(safe-area-inset-bottom))}
+.bar-in{max-width:560px;margin:0 auto;display:flex;gap:10px}
+.btn{flex:1;border:0;border-radius:14px;padding:16px;font-size:16px;font-weight:700;
+  background:var(--main);color:#fff;box-shadow:0 6px 16px rgba(255,122,69,.28);
+  transition:transform .08s ease,background .15s,box-shadow .15s}
+.btn:active{transform:scale(.97);background:var(--main-d)}
+.btn:disabled{background:#D1D5DB;box-shadow:none;transform:none}
+.btn.ghost{background:#fff;color:var(--text);border:1.5px solid var(--line);box-shadow:none}
+.btn.ghost:active{background:var(--bg)}
+.btn.side{flex:0 0 96px}
+.btns{padding:0 16px;display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.btns .btn{flex:none;width:100%}
+
+/* ---------- ヒーロー ---------- */
+.hero{background:var(--main);color:#fff;padding:calc(36px + env(safe-area-inset-top)) 24px 32px;
+  border-radius:0 0 28px 28px}
+.hero .eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;color:#FFE6D9}
+.hero h2{margin:8px 0 6px;font-size:26px;line-height:1.35}
+.hero p{margin:0;color:#FFEEE5;font-size:14px;line-height:1.6}
+.hero .area{font-size:22px;font-weight:700;line-height:1.4;margin-top:6px}
+.steps{padding:24px 20px 4px}
+.step{display:flex;gap:14px;align-items:flex-start;margin-bottom:18px}
+.step .n{flex:0 0 30px;height:30px;border-radius:50%;background:var(--main-l);color:var(--main);
+  font-weight:700;font-size:14px;display:grid;place-items:center}
+.step b{display:block;font-size:14px;margin-bottom:2px}
+.step span{font-size:12px;color:var(--sub);line-height:1.6}
+
+/* ---------- 一覧（回答一覧・履歴） ---------- */
+.sum-title{margin:24px 16px 4px;font-size:20px;font-weight:700}
+.sum-sub{margin:0 16px 12px;font-size:12px;color:var(--sub);line-height:1.6}
+.sum-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:0;
+  border-top:1px solid var(--line);padding:14px 16px}
+.sum-item:active{background:var(--bg)}
+.sum-item .qq{font-size:11px;color:var(--sub);margin-bottom:3px}
+.sum-item .aa{font-size:14px;font-weight:700;word-break:break-word}
+.sum-item .ed{flex:0 0 auto;font-size:11px;color:var(--main);font-weight:700}
+.sum-item .body{flex:1;min-width:0}
+
+/* ---------- 結果カード ---------- */
+.card{margin:16px;padding:18px 16px;border:1px solid var(--line);border-radius:16px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--main)}
+.card ul{margin:0;padding:0;list-style:none}
+.card li{position:relative;padding-left:16px;margin-bottom:8px;font-size:14px;line-height:1.7}
+.card li::before{content:"";position:absolute;left:2px;top:.72em;width:6px;height:6px;border-radius:50%;background:var(--main)}
+.card .plain{background:var(--bg);border-radius:10px;padding:12px;font-size:14px;line-height:1.7}
+.dish{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.dish .role{display:inline-block;background:var(--main-l);color:var(--main);font-size:11px;font-weight:700;
+  padding:3px 10px;border-radius:999px;margin-bottom:8px}
+.dish h4{margin:0 0 4px;font-size:16px}
+.dish .time{font-size:12px;color:var(--sub);margin-bottom:10px}
+.dish .ing{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.dish .ing span{background:var(--bg);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--text)}
+.dish ol{margin:0;padding-left:20px}
+.dish ol li{font-size:13px;line-height:1.8;margin-bottom:4px}
+.dish .point{margin-top:10px;background:var(--main-l);border-radius:10px;padding:10px;font-size:12px;color:var(--main-d)}
+
+/* ---------- ローディング / エラー ---------- */
+.center{min-height:80vh;min-height:80dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:24px}
+.spinner{width:52px;height:52px;border-radius:50%;border:5px solid var(--main-l);border-top-color:var(--main);
+  animation:spin .9s linear infinite;margin-bottom:22px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.center h2{font-size:18px;margin:0 0 8px}
+.center p{margin:0;color:var(--sub);font-size:13px;line-height:1.7;white-space:pre-line}
+.err-ico{font-size:40px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- 設定（LIFF_ID / GAS_URL）は config.js にあります -->
+<script src="config.js"></script>
+<script>
+/* ================================================================
+ * 状態
+ * ================================================================ */
+const S = {
+  qs: [],              // [{question, type:'single'|'multi', choices[]}]（スプレッドシートから取得）
+  ingredients: [],      // 今ある食材
+  priority: [],         // 優先して使いたい食材（ingredientsの部分集合）
+  qsel: [],             // qsel[i] = その質問で選択された選択肢(文字列)の配列
+  qidx: 0,
+  editing: false,
+  screen: 'boot',
+  dir: 'fwd',
+  userId: 'anon',
+  result: null,
+  history: [],
+  hIdx: 0,
+  error: '',
+  retryAct: 'reload',
+  errBack: ''
+};
+
+// 画面の並び: ingredients(食材入力) -> priority(優先食材) -> question(質問0..n-1) -> summary -> loading -> result
+const app = document.getElementById('app');
+const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---- 端末内への保存 ---- */
+const storeKey = () => 'menu_liff_v1_' + S.userId;
+function save() {
+  try {
+    localStorage.setItem(storeKey(), JSON.stringify({
+      ingredients: S.ingredients, priority: S.priority, qsel: S.qsel, qidx: S.qidx
+    }));
+  } catch (e) { /* 無視 */ }
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(storeKey());
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (Array.isArray(d.ingredients)) S.ingredients = d.ingredients;
+    if (Array.isArray(d.priority)) S.priority = d.priority.filter(p => S.ingredients.indexOf(p) >= 0);
+    if (Array.isArray(d.qsel) && d.qsel.length === S.qs.length) S.qsel = d.qsel;
+    if (typeof d.qidx === 'number') S.qidx = Math.min(d.qidx, Math.max(0, S.qs.length - 1));
+  } catch (e) { /* 無視 */ }
+}
+function resetAll() {
+  S.ingredients = []; S.priority = [];
+  S.qsel = S.qs.map(() => []);
+  S.qidx = 0; S.editing = false;
+  save();
+}
+
+/* ================================================================
+ * 画面遷移
+ * ================================================================ */
+let loadingTimer = null;
+function go(screen, dir) {
+  if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
+  S.screen = screen;
+  S.dir = dir || 'fwd';
+  render();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  const fn = {
+    boot: rBoot, intro: rIntro, ingredients: rIngredients, priority: rPriority,
+    question: rQuestion, summary: rSummary, loading: rLoading, result: rResult,
+    error: rError, hloading: rHistLoading, history: rHistory, histDetail: rHistDetail
+  }[S.screen];
+  app.innerHTML = '<div class="screen ' + (S.dir === 'back' ? 'back' : '') + '">' + fn() + '</div>';
+  if (S.screen === 'ingredients') { updateIngredientUI(); focusAddInput(); }
+  if (S.screen === 'question') updateQuestionUI();
+  if (S.screen === 'loading') startLoadingMessages();
+}
+
+function focusAddInput() {
+  setTimeout(() => { const el = document.getElementById('addInput'); if (el) el.focus(); }, 60);
+}
+
+/* ---------- 起動中 ---------- */
+function rBoot() {
+  return '<div class="center"><div class="spinner"></div><h2>読み込み中…</h2></div>';
+}
+
+/* ---------- トップ ---------- */
+function rIntro() {
+  const hasProgress = S.ingredients.length > 0 || S.qsel.some(a => a.length > 0);
+  let btns = '<button class="btn" data-act="start">献立を考える</button>';
+  if (hasProgress) btns += '<button class="btn ghost" data-act="resume">続きから入力する</button>';
+  btns += '<button class="btn ghost" data-act="history">📖 過去の献立を見る</button>';
+  if (hasProgress) btns += '<button class="linkbtn" style="align-self:center" data-act="reset">入力をリセット</button>';
+  return `
+    <div class="hero">
+      <div class="eyebrow">MENU SIMULATOR</div>
+      <h2>🍳 今日の献立<br>シミュレーション</h2>
+      <p>冷蔵庫の中身から、AIが献立を考えます。</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div><b>今ある食材を入力</b><span>冷蔵庫・常温保存のものを思いつくまま入力してください。</span></div></div>
+      <div class="step"><div class="n">2</div><div><b>人数や好みを選択</b><span>系統や栄養の希望など、簡単な質問に答えます。</span></div></div>
+      <div class="step"><div class="n">3</div><div><b>献立・材料・手順が届く</b><span>AIが買い足しが必要なものまで教えてくれます。</span></div></div>
+    </div>
+    <div class="btns">${btns}</div>`;
+}
+
+/* ---------- 食材入力（チップ積み上げ） ---------- */
+function rIngredients() {
+  return `
+    <div class="topbar">
+      <div class="row">
+        <span class="q-no">STEP 1 / ${2 + S.qs.length}</span>
+        <button class="linkbtn" data-act="home">最初に戻る</button>
+      </div>
+      <div class="progress"><i style="width:${Math.round(100 / (2 + S.qs.length))}%"></i></div>
+    </div>
+    <h1 class="q">今、自宅にある食材は？</h1>
+    <p class="subtext">1つずつ入力して追加してください。多少あいまいでも大丈夫です（例: 「豚肉」「キャベツ半玉」など）。</p>
+    <div class="add-row">
+      <input id="addInput" type="text" maxlength="30" placeholder="例: 豚こま肉" autocomplete="off">
+      <button data-act="add">＋</button>
+    </div>
+    <div class="chips" id="chipArea"></div>
+    <div class="empty-hint" id="emptyHint" style="display:none">まだ食材が入力されていません。1つ以上入力してください。</div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost side" data-act="home">戻る</button>
+      <button class="btn" id="nextBtn" data-act="toPriority">次へ</button>
+    </div></div>`;
+}
+
+function renderChips() {
+  const area = document.getElementById('chipArea');
+  if (!area) return;
+  area.innerHTML = S.ingredients.map((name, i) => `
+    <span class="chip"><span>${esc(name)}</span>
+      <button data-act="removeIng" data-i="${i}" aria-label="削除">✕</button>
+    </span>`).join('');
+}
+
+function updateIngredientUI() {
+  renderChips();
+  const hint = document.getElementById('emptyHint');
+  const btn = document.getElementById('nextBtn');
+  const has = S.ingredients.length > 0;
+  if (hint) hint.style.display = has ? 'none' : 'block';
+  if (btn) btn.disabled = !has;
+}
+
+function addIngredientFromInput() {
+  const input = document.getElementById('addInput');
+  if (!input) return;
+  const v = input.value.trim();
+  if (!v) return;
+  if (S.ingredients.indexOf(v) < 0) S.ingredients.push(v);
+  input.value = '';
+  input.focus();
+  updateIngredientUI();
+  save();
+}
+
+/* ---------- 優先食材の選択 ---------- */
+function rPriority() {
+  const chips = S.ingredients.map(name => `
+    <button class="chip selectable ${S.priority.indexOf(name) >= 0 ? 'on' : ''}" data-act="togglePriority" data-name="${esc(name)}">
+      ${esc(name)}
+    </button>`).join('');
+  return `
+    <div class="topbar">
+      <div class="row">
+        <span class="q-no">STEP 2 / ${2 + S.qs.length}</span>
+        <button class="linkbtn" data-act="home">最初に戻る</button>
+      </div>
+      <div class="progress"><i style="width:${Math.round(200 / (2 + S.qs.length))}%"></i></div>
+    </div>
+    <h1 class="q">優先して使いたい食材は？</h1>
+    <p class="subtext">特に使い切りたい食材があればタップしてください（任意・0個でもOK）。</p>
+    <div class="chips">${chips}</div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost side" data-act="toIngredients">戻る</button>
+      <button class="btn" data-act="toQuestions">次へ</button>
+    </div></div>`;
+}
+
+/* ---------- 質問（単一/複数選択） ---------- */
+function rQuestion() {
+  const i = S.qidx, q = S.qs[i], total = S.qs.length;
+  const stepNo = 3 + i;
+  const sel = S.qsel[i];
+  const boxShape = q.type === 'single' ? 'round' : 'square';
+  const opts = q.choices.map((c, k) => `
+    <button class="opt ${sel.indexOf(c) >= 0 ? 'on' : ''}" data-act="toggleChoice" data-k="${k}">
+      <span class="box ${boxShape}">${CHECK}</span><span class="txt">${esc(c)}</span></button>`).join('');
+  const isLast = i === total - 1;
+  const nextLabel = S.editing ? '決定して一覧へ' : (isLast ? '確認へ' : '次へ');
+  const prevLabel = S.editing ? '一覧へ' : '戻る';
+  const typeLabel = q.type === 'single' ? '1つ選択' : '複数選択OK';
+  return `
+    <div class="topbar">
+      <div class="row">
+        <span class="q-no">STEP ${stepNo} / ${2 + total}</span>
+        <button class="linkbtn" data-act="home">最初に戻る</button>
+      </div>
+      <div class="progress"><i style="width:${Math.round(stepNo / (2 + total) * 100)}%"></i></div>
+    </div>
+    <h1 class="q">${esc(q.question)}</h1>
+    <div class="meta"><span class="badge">${typeLabel}</span><span class="count" id="count"></span></div>
+    <div class="opts">${opts}</div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost side" data-act="prevQ">${prevLabel}</button>
+      <button class="btn" id="nextBtn" data-act="nextQ">${nextLabel}</button>
+    </div></div>`;
+}
+
+function updateQuestionUI() {
+  const n = S.qsel[S.qidx].length;
+  const c = document.getElementById('count');
+  if (c) c.innerHTML = n > 0 ? '<b>' + n + '件</b>選択中' : '任意（選ばなくてもOK）';
+  const b = document.getElementById('nextBtn');
+  if (b) b.disabled = false; // すべての質問は任意回答
+}
+
+/* ---------- 回答一覧 ---------- */
+function rSummary() {
+  const ingRow = `
+    <div class="sum-item" style="border-top:0">
+      <div class="body">
+        <div class="qq">今ある食材</div>
+        <div class="aa">${S.ingredients.map(esc).join('、') || '（未入力）'}</div>
+      </div>
+      <span class="ed" data-nav="toIngredients">修正 ›</span>
+    </div>
+    <div class="sum-item">
+      <div class="body">
+        <div class="qq">優先して使いたい食材</div>
+        <div class="aa">${S.priority.length ? S.priority.map(esc).join('、') : '（指定なし）'}</div>
+      </div>
+      <span class="ed" data-nav="toPriority">修正 ›</span>
+    </div>`;
+  const qRows = S.qs.map((q, i) => `
+    <button class="sum-item" data-act="editQ" data-i="${i}">
+      <div class="body">
+        <div class="qq">${esc(q.question)}</div>
+        <div class="aa">${S.qsel[i].length ? S.qsel[i].map(esc).join('、') : '<span style="color:var(--sub)">未回答</span>'}</div>
+      </div>
+      <span class="ed">修正 ›</span>
+    </button>`).join('');
+  return `
+    <div class="sum-title">🎉 入力内容の確認</div>
+    <p class="sum-sub">内容を確認して、献立を作成してください。修正したい項目はタップで変更できます。</p>
+    <div style="border-bottom:1px solid var(--line)">${ingRow}${qRows}</div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost side" data-act="home">最初に戻る</button>
+      <button class="btn" data-act="submit">この内容で献立を作成</button>
+    </div></div>`;
+}
+
+/* ---------- 作成中 ---------- */
+const LOADING_MSGS = ['食材の組み合わせを考えています…', '栄養バランスを調整しています…',
+                      '手順を整理しています…', '買い足しが必要なものを確認しています…'];
+function rLoading() {
+  return '<div class="center"><div class="spinner"></div><h2>献立を作成中</h2><p id="loadMsg">' + LOADING_MSGS[0] +
+         '</p><p style="margin-top:14px">30秒ほどかかることがあります。\n画面を閉じずにお待ちください。</p></div>';
+}
+function startLoadingMessages() {
+  let n = 0;
+  loadingTimer = setInterval(() => {
+    n = (n + 1) % LOADING_MSGS.length;
+    const el = document.getElementById('loadMsg');
+    if (el) el.textContent = LOADING_MSGS[n];
+  }, 2400);
+}
+
+/* ---------- 結果（新規・履歴で共通） ---------- */
+const ROLE_ICON = { '主菜': '🍖', '副菜': '🥗', '汁物': '🍲', 'ご飯・主食': '🍚' };
+function dishCard(d) {
+  const icon = ROLE_ICON[d.role] || '🍽️';
+  const ing = (d.ingredients || []).map(x => `<span>${esc(x.name)} ${esc(x.amount)}</span>`).join('');
+  const steps = (d.steps || []).map(s => `<li>${esc(s)}</li>`).join('');
+  return `
+    <div class="dish">
+      <span class="role">${icon} ${esc(d.role)}</span>
+      <h4>${esc(d.name)}</h4>
+      <div class="time">調理目安: 約${esc(d.timeMinutes)}分</div>
+      <div class="ing">${ing}</div>
+      <ol>${steps}</ol>
+      ${d.point ? `<div class="point">💡 ${esc(d.point)}</div>` : ''}
+    </div>`;
+}
+
+function resultView(d, eyebrow) {
+  const dishes = (d.dishes || []).map(dishCard).join('');
+  const used = (d.usedFromFridge || []).map(esc).join('、');
+  const shop = d.shoppingList || [];
+  const shopHtml = shop.length
+    ? `<div class="card"><h3>🛒 買い足しが必要なもの</h3><ul>${shop.map(x => `<li>${esc(x.name)} ${esc(x.amount)}</li>`).join('')}</ul></div>`
+    : `<div class="card"><h3>🛒 買い足しが必要なもの</h3><div class="plain">今ある食材だけで作れます！</div></div>`;
+  const tips = d.tips || [];
+
+  return `
+    <div class="hero">
+      <div class="eyebrow">${esc(eyebrow)}</div>
+      <div class="area">🍽️ ${esc(d.mealName)}</div>
+    </div>
+    <div class="card"><h3>👨‍🍳 献立</h3>${dishes}</div>
+    ${shopHtml}
+    <div class="card"><h3>🥦 使った食材</h3><div class="plain">${used || '（なし）'}</div></div>
+    <div class="card"><h3>📊 栄養メモ</h3><div class="plain">${esc(d.nutritionNote)}</div></div>
+    ${tips.length ? `<div class="card"><h3>📌 コツ・アレンジ</h3><ul>${tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}`;
+}
+
+function rResult() {
+  return resultView(S.result, 'MENU RESULT') + `
+    <div class="btns" style="margin-bottom:24px">
+      <button class="btn" data-act="start">もう一度作る</button>
+      <button class="btn ghost" data-act="history">📖 過去の献立を見る</button>
+      <button class="btn ghost" data-act="review">入力を見直す</button>
+      <button class="btn ghost" data-act="close">LINEに戻る</button>
+    </div>`;
+}
+
+/* ---------- 過去の献立 ---------- */
+const fmtAt = s => String(s || '').replace(/-/g, '/').slice(0, 16);
+
+function rHistLoading() {
+  return '<div class="center"><div class="spinner"></div><h2>履歴を読み込み中…</h2></div>';
+}
+
+function rHistory() {
+  const list = S.history.length
+    ? S.history.map((h, i) => `
+        <button class="sum-item" data-act="hdetail" data-i="${i}">
+          <div class="body">
+            <div class="qq">${esc(fmtAt(h.at))}</div>
+            <div class="aa">🍽️ ${esc(h.result.mealName)}</div>
+            <div class="qq" style="margin:4px 0 0">${esc((h.result.dishes || []).map(d => d.name).join(' / '))}</div>
+          </div>
+          <span class="ed">見る ›</span>
+        </button>`).join('')
+    : '<div class="center" style="min-height:40vh"><p>まだ保存された献立はありません。\n作成すると、ここに残ります。</p></div>';
+  return `
+    <div class="sum-title">📖 過去の献立</div>
+    <p class="sum-sub">新しい順に、最大20件まで表示します。</p>
+    <div style="border-bottom:1px solid var(--line)">${list}</div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost" data-act="home">トップへ戻る</button>
+    </div></div>`;
+}
+
+function rHistDetail() {
+  const h = S.history[S.hIdx];
+  return resultView(h.result, fmtAt(h.at) + ' の献立') + `
+    <div class="card">
+      <h3>🥬 このときの食材</h3>
+      <div class="plain">${(h.ingredients || []).map(esc).join('、') || 'なし'}</div>
+    </div>
+    <div class="bar"><div class="bar-in">
+      <button class="btn ghost" data-act="hback">一覧へ戻る</button>
+    </div></div>`;
+}
+
+/* ---------- エラー ---------- */
+function rError() {
+  const back = S.errBack === 'summary' ? ['review', '入力一覧へ戻る']
+             : S.errBack === 'home' ? ['home', 'トップへ戻る'] : null;
+  return `<div class="center"><div class="err-ico">⚠️</div><h2>うまくいきませんでした</h2>
+    <p>${esc(S.error)}</p>
+    <div class="btns" style="width:100%;max-width:320px">
+      <button class="btn" data-act="${S.retryAct || 'reload'}">もう一度試す</button>
+      ${back ? '<button class="btn ghost" data-act="' + back[0] + '">' + back[1] + '</button>' : ''}
+    </div></div>`;
+}
+
+/* ================================================================
+ * 操作
+ * ================================================================ */
+app.addEventListener('click', e => {
+  const nav = e.target.closest('[data-nav]');
+  if (nav) { act(nav.dataset.nav, nav); return; }
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  act(el.dataset.act, el);
+});
+
+app.addEventListener('keydown', e => {
+  if (e.target && e.target.id === 'addInput' && e.key === 'Enter') {
+    e.preventDefault();
+    addIngredientFromInput();
+  }
+});
+
+function act(name, el) {
+  const i = S.qidx;
+  switch (name) {
+    case 'start':   S.editing = false; go('ingredients'); break;
+    case 'resume': {
+      S.editing = false;
+      if (S.ingredients.length === 0) go('ingredients');
+      else if (S.qs.length === 0) go('summary');
+      else go('question');
+      break;
+    }
+    case 'review':  go('summary'); break;
+    case 'home':    S.editing = false; go('intro', 'back'); break;
+    case 'reset':
+      if (confirm('入力した内容をすべてリセットしますか？')) { resetAll(); go('intro', 'back'); }
+      break;
+
+    case 'add':         addIngredientFromInput(); break;
+    case 'removeIng': {
+      const idx = +el.dataset.i;
+      const name = S.ingredients[idx];
+      S.ingredients.splice(idx, 1);
+      S.priority = S.priority.filter(p => p !== name);
+      updateIngredientUI(); save();
+      break;
+    }
+    case 'toIngredients': go('ingredients', 'back'); break;
+    case 'toPriority':
+      if (S.ingredients.length === 0) return;
+      go('priority');
+      break;
+    case 'togglePriority': {
+      const name = el.dataset.name;
+      const p = S.priority.indexOf(name);
+      if (p >= 0) S.priority.splice(p, 1); else S.priority.push(name);
+      el.classList.toggle('on');
+      save();
+      break;
+    }
+    case 'toQuestions':
+      if (S.qs.length === 0) { go('summary'); return; }
+      S.qidx = 0; go('question');
+      break;
+
+    case 'toggleChoice': {
+      const q = S.qs[i];
+      const choice = q.choices[+el.dataset.k];
+      const sel = S.qsel[i];
+      if (q.type === 'single') {
+        S.qsel[i] = sel.indexOf(choice) >= 0 ? [] : [choice];
+        render(); // 単一選択は見た目が大きく変わるため全体再描画
+      } else {
+        const p = sel.indexOf(choice);
+        if (p >= 0) sel.splice(p, 1); else sel.push(choice);
+        el.classList.toggle('on');
+        updateQuestionUI();
+      }
+      save();
+      break;
+    }
+    case 'nextQ':
+      if (S.editing) { S.editing = false; go('summary'); }
+      else if (i < S.qs.length - 1) { S.qidx = i + 1; save(); go('question'); }
+      else go('summary');
+      break;
+    case 'prevQ':
+      if (S.editing) { S.editing = false; go('summary', 'back'); }
+      else if (i > 0) { S.qidx = i - 1; save(); go('question', 'back'); }
+      else go('priority', 'back');
+      break;
+    case 'editQ': S.qidx = +el.dataset.i; S.editing = true; go('question'); break;
+
+    case 'history': loadHistory(); break;
+    case 'hdetail': S.hIdx = +el.dataset.i; go('histDetail'); break;
+    case 'hback':   go('history', 'back'); break;
+    case 'submit':  submit(); break;
+    case 'reload':  location.reload(); break;
+    case 'close':   if (liff.isInClient()) liff.closeWindow(); else window.close(); break;
+  }
+}
+
+/* ================================================================
+ * GAS API
+ * ================================================================ */
+async function callApi(payload) {
+  const idToken = liff.getIDToken();
+  if (!idToken) {
+    throw new Error('IDトークンを取得できませんでした。LINE DevelopersのLIFFアプリ設定で、スコープの「openid」にチェックが入っているか確認してください。');
+  }
+  const res = await fetch(CONFIG.GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify(Object.assign({ idToken: idToken }, payload))
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    if (data.code === 'AUTH' && !sessionStorage.getItem('menu_relogin')) {
+      sessionStorage.setItem('menu_relogin', '1');
+      liff.logout(); liff.login({ redirectUri: location.href });
+      return new Promise(() => {});
+    }
+    throw new Error(data.error || 'エラーが発生しました。');
+  }
+  sessionStorage.removeItem('menu_relogin');
+  return data;
+}
+
+let submitting = false;
+async function submit() {
+  if (submitting) return;
+  submitting = true;
+  go('loading');
+  try {
+    const answers = {};
+    S.qs.forEach((_, idx) => { answers[idx] = S.qsel[idx]; });
+    const data = await callApi({
+      action: 'result',
+      ingredients: S.ingredients,
+      priority: S.priority,
+      answers: answers
+    });
+    S.result = data.result;
+    go('result');
+  } catch (e) {
+    S.error = e.message || '通信に失敗しました。電波の良い場所でもう一度お試しください。';
+    S.retryAct = 'submit'; S.errBack = 'summary';
+    go('error');
+  } finally {
+    submitting = false;
+  }
+}
+
+async function loadHistory() {
+  go('hloading');
+  try {
+    const data = await callApi({ action: 'history' });
+    S.history = data.items || [];
+    go('history');
+  } catch (e) {
+    S.error = e.message || '履歴を読み込めませんでした。';
+    S.retryAct = 'history'; S.errBack = 'home';
+    go('error');
+  }
+}
+
+/* ================================================================
+ * 起動
+ * ================================================================ */
+async function boot() {
+  render();
+  let stage = '設定の読み込み';
+  try {
+    if (typeof CONFIG === 'undefined') {
+      throw new Error('config.js を読み込めませんでした。index.html と同じ場所（リポジトリ直下）に config.js をアップロードしてください。');
+    }
+    if (CONFIG.LIFF_ID.indexOf('YOUR_') === 0 || CONFIG.GAS_URL.indexOf('XXXX') >= 0) {
+      throw new Error('config.js の LIFF_ID / GAS_URL が未設定です（初期値のままです）。');
+    }
+    stage = 'LIFFの初期化';
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+
+    const tok = liff.getDecodedIDToken();
+    if (tok && tok.sub) S.userId = tok.sub;
+
+    stage = '質問の読み込み（GAS）';
+    const res = await fetch(CONFIG.GAS_URL + '?action=questions');
+    const data = await res.json();
+    if (!data.ok) throw new Error('質問を読み込めませんでした。スプレッドシートの設定をご確認ください。');
+    S.qs = (data.questions || []).map(q => ({
+      question: q.question,
+      type: q.type === 'single' ? 'single' : 'multi',
+      choices: q.choices || []
+    }));
+
+    S.qsel = S.qs.map(() => []);
+    load(); // 保存済みの入力を復元（質問数が変わっていても壊れないようqsel長を補正）
+    if (S.qsel.length !== S.qs.length) S.qsel = S.qs.map(() => []);
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('screen') === 'history') { await loadHistory(); return; }
+
+    go('intro');
+  } catch (e) {
+    S.error = (e.message || '起動に失敗しました。') + '\n（失敗した段階: ' + stage + '）';
+    S.retryAct = 'reload'; S.errBack = '';
+    go('error');
+  }
+}
+boot();
+</script>
+</body>
+</html>
