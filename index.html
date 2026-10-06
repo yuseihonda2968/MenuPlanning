@@ -55,6 +55,14 @@ h1.q{font-size:20px;line-height:1.5;margin:22px 16px 6px;font-weight:700}
   transform:scale(0);transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
 .opt.on .box svg{transform:scale(1)}
 .opt .txt{flex:1;min-width:0;word-break:break-word}
+.opt.other{background:#fff;border-style:dashed;border-color:#C4C9D0}
+.opt.other.on{border-style:solid;border-color:var(--main);background:var(--main-l)}
+.other-input{display:none;padding:0 16px;margin:-2px 0 12px}
+.other-input.show{display:block;animation:inFwd .2s ease both}
+.other-input textarea{width:100%;min-height:80px;resize:none;border:1.5px solid var(--main);border-radius:12px;
+  padding:12px;font:inherit;font-size:16px;color:var(--text);background:#fff;outline:none}
+.other-input textarea::placeholder{color:#9CA3AF}
+.other-hint{font-size:11px;color:var(--sub);text-align:right;margin-top:4px}
 
 /* ---------- 食材チップ入力 ---------- */
 .add-row{display:flex;gap:8px;padding:0 16px 16px}
@@ -161,6 +169,7 @@ const S = {
   ingredients: [],      // 今ある食材
   priority: [],         // 優先して使いたい食材（ingredientsの部分集合）
   qsel: [],             // qsel[i] = その質問で選択された選択肢(文字列)の配列
+  qother: [],           // qother[i] = {on:boolean, text:string}（「その他」の自由入力）
   qidx: 0,
   editing: false,
   screen: 'boot',
@@ -180,12 +189,20 @@ const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+/** 質問iの最終的な回答（選択肢＋「その他」の自由入力）をまとめて返す */
+function composedForQuestion(i) {
+  const out = S.qsel[i].slice();
+  const o = S.qother[i];
+  if (o && o.on && o.text.trim()) out.push(o.text.trim());
+  return out;
+}
+
 /* ---- 端末内への保存 ---- */
 const storeKey = () => 'menu_liff_v1_' + S.userId;
 function save() {
   try {
     localStorage.setItem(storeKey(), JSON.stringify({
-      ingredients: S.ingredients, priority: S.priority, qsel: S.qsel, qidx: S.qidx
+      ingredients: S.ingredients, priority: S.priority, qsel: S.qsel, qother: S.qother, qidx: S.qidx
     }));
   } catch (e) { /* 無視 */ }
 }
@@ -197,12 +214,14 @@ function load() {
     if (Array.isArray(d.ingredients)) S.ingredients = d.ingredients;
     if (Array.isArray(d.priority)) S.priority = d.priority.filter(p => S.ingredients.indexOf(p) >= 0);
     if (Array.isArray(d.qsel) && d.qsel.length === S.qs.length) S.qsel = d.qsel;
+    if (Array.isArray(d.qother) && d.qother.length === S.qs.length) S.qother = d.qother;
     if (typeof d.qidx === 'number') S.qidx = Math.min(d.qidx, Math.max(0, S.qs.length - 1));
   } catch (e) { /* 無視 */ }
 }
 function resetAll() {
   S.ingredients = []; S.priority = [];
   S.qsel = S.qs.map(() => []);
+  S.qother = S.qs.map(() => ({ on: false, text: '' }));
   S.qidx = 0; S.editing = false;
   save();
 }
@@ -343,6 +362,7 @@ function rQuestion() {
   const i = S.qidx, q = S.qs[i], total = S.qs.length;
   const stepNo = 3 + i;
   const sel = S.qsel[i];
+  const o = S.qother[i];
   const boxShape = q.type === 'single' ? 'round' : 'square';
   const opts = q.choices.map((c, k) => `
     <button class="opt ${sel.indexOf(c) >= 0 ? 'on' : ''}" data-act="toggleChoice" data-k="${k}">
@@ -361,7 +381,15 @@ function rQuestion() {
     </div>
     <h1 class="q">${esc(q.question)}</h1>
     <div class="meta"><span class="badge">${typeLabel}</span><span class="count" id="count"></span></div>
-    <div class="opts">${opts}</div>
+    <div class="opts">
+      ${opts}
+      <button class="opt other ${boxShape} ${o.on ? 'on' : ''}" data-act="toggleOther">
+        <span class="box ${boxShape}">${CHECK}</span><span class="txt">✏️ その他（自由入力）</span></button>
+    </div>
+    <div class="other-input ${o.on ? 'show' : ''}" id="otherWrap">
+      <textarea id="qOtherText" maxlength="100" placeholder="自由に入力してください">${esc(o.text)}</textarea>
+      <div class="other-hint"><span id="qOtherLen">${o.text.length}</span> / 100</div>
+    </div>
     <div class="bar"><div class="bar-in">
       <button class="btn ghost side" data-act="prevQ">${prevLabel}</button>
       <button class="btn" id="nextBtn" data-act="nextQ">${nextLabel}</button>
@@ -369,7 +397,7 @@ function rQuestion() {
 }
 
 function updateQuestionUI() {
-  const n = S.qsel[S.qidx].length;
+  const n = composedForQuestion(S.qidx).length;
   const c = document.getElementById('count');
   if (c) c.innerHTML = n > 0 ? '<b>' + n + '件</b>選択中' : '任意（選ばなくてもOK）';
   const b = document.getElementById('nextBtn');
@@ -393,14 +421,17 @@ function rSummary() {
       </div>
       <span class="ed" data-nav="toPriority">修正 ›</span>
     </div>`;
-  const qRows = S.qs.map((q, i) => `
+  const qRows = S.qs.map((q, i) => {
+    const vals = composedForQuestion(i);
+    return `
     <button class="sum-item" data-act="editQ" data-i="${i}">
       <div class="body">
         <div class="qq">${esc(q.question)}</div>
-        <div class="aa">${S.qsel[i].length ? S.qsel[i].map(esc).join('、') : '<span style="color:var(--sub)">未回答</span>'}</div>
+        <div class="aa">${vals.length ? vals.map(esc).join('、') : '<span style="color:var(--sub)">未回答</span>'}</div>
       </div>
       <span class="ed">修正 ›</span>
-    </button>`).join('');
+    </button>`;
+  }).join('');
   return `
     <div class="sum-title">🎉 入力内容の確認</div>
     <p class="sum-sub">内容を確認して、献立を作成してください。修正したい項目はタップで変更できます。</p>
@@ -437,7 +468,7 @@ function dishCard(d) {
     <div class="dish">
       <span class="role">${icon} ${esc(d.role)}</span>
       <h4>${esc(d.name)}</h4>
-      <div class="time">調理目安: 約${esc(d.timeMinutes)}分</div>
+      <div class="time">調理目安: 約${esc(d.timeMinutes)}分　🔥 約${esc(d.calorieKcal)}kcal</div>
       <div class="ing">${ing}</div>
       <ol>${steps}</ol>
       ${d.point ? `<div class="point">💡 ${esc(d.point)}</div>` : ''}
@@ -457,11 +488,13 @@ function resultView(d, eyebrow) {
     <div class="hero">
       <div class="eyebrow">${esc(eyebrow)}</div>
       <div class="area">🍽️ ${esc(d.mealName)}</div>
+      ${d.totalCalorieKcal != null ? `<p style="margin-top:10px">🔥 合計 約${esc(d.totalCalorieKcal)}kcal（1人分）</p>` : ''}
     </div>
     <div class="card"><h3>👨‍🍳 献立</h3>${dishes}</div>
     ${shopHtml}
     <div class="card"><h3>🥦 使った食材</h3><div class="plain">${used || '（なし）'}</div></div>
     <div class="card"><h3>📊 栄養メモ</h3><div class="plain">${esc(d.nutritionNote)}</div></div>
+    ${d.dietNote ? `<div class="card"><h3>🎯 ダイエットメモ</h3><div class="plain">${esc(d.dietNote)}</div></div>` : ''}
     ${tips.length ? `<div class="card"><h3>📌 コツ・アレンジ</h3><ul>${tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}`;
 }
 
@@ -545,6 +578,15 @@ app.addEventListener('keydown', e => {
   }
 });
 
+app.addEventListener('input', e => {
+  if (e.target.id !== 'qOtherText') return;
+  S.qother[S.qidx].text = e.target.value;
+  const len = document.getElementById('qOtherLen');
+  if (len) len.textContent = e.target.value.length;
+  updateQuestionUI();
+  save();
+});
+
 function act(name, el) {
   const i = S.qidx;
   switch (name) {
@@ -595,11 +637,35 @@ function act(name, el) {
       const sel = S.qsel[i];
       if (q.type === 'single') {
         S.qsel[i] = sel.indexOf(choice) >= 0 ? [] : [choice];
+        if (S.qsel[i].length) S.qother[i].on = false; // 単一選択は「その他」と排他
         render(); // 単一選択は見た目が大きく変わるため全体再描画
       } else {
         const p = sel.indexOf(choice);
         if (p >= 0) sel.splice(p, 1); else sel.push(choice);
         el.classList.toggle('on');
+        updateQuestionUI();
+      }
+      save();
+      break;
+    }
+    case 'toggleOther': {
+      const q = S.qs[i];
+      const o = S.qother[i];
+      o.on = !o.on;
+      if (o.on && q.type === 'single') {
+        S.qsel[i] = []; // 単一選択は「その他」を選ぶと通常の選択肢は解除
+        render();
+        setTimeout(() => {
+          const t = document.getElementById('qOtherText');
+          if (t) { t.focus(); t.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        }, 60);
+      } else {
+        el.classList.toggle('on', o.on);
+        document.getElementById('otherWrap').classList.toggle('show', o.on);
+        if (o.on) setTimeout(() => {
+          const t = document.getElementById('qOtherText');
+          if (t) { t.focus(); t.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        }, 60);
         updateQuestionUI();
       }
       save();
@@ -658,7 +724,7 @@ async function submit() {
   go('loading');
   try {
     const answers = {};
-    S.qs.forEach((_, idx) => { answers[idx] = S.qsel[idx]; });
+    S.qs.forEach((_, idx) => { answers[idx] = composedForQuestion(idx); });
     const data = await callApi({
       action: 'result',
       ingredients: S.ingredients,
@@ -720,8 +786,10 @@ async function boot() {
     }));
 
     S.qsel = S.qs.map(() => []);
-    load(); // 保存済みの入力を復元（質問数が変わっていても壊れないようqsel長を補正）
+    S.qother = S.qs.map(() => ({ on: false, text: '' }));
+    load(); // 保存済みの入力を復元（質問数が変わっていても壊れないようqsel/qother長を補正）
     if (S.qsel.length !== S.qs.length) S.qsel = S.qs.map(() => []);
+    if (S.qother.length !== S.qs.length) S.qother = S.qs.map(() => ({ on: false, text: '' }));
 
     const params = new URLSearchParams(location.search);
     if (params.get('screen') === 'history') { await loadHistory(); return; }
